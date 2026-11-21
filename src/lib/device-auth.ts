@@ -9,7 +9,11 @@ import { createHash, randomBytes, timingSafeEqual } from "crypto";
  * (voir /api/admin/devices).
  */
 
-const PEPPER = process.env.DEVICE_KEY_PEPPER ?? "smart-solarnet-dev-pepper";
+const PEPPER = process.env.DEVICE_KEY_PEPPER;
+
+if (!PEPPER) {
+  throw new Error("DEVICE_KEY_PEPPER must be configured");
+}
 
 export function generateDeviceApiKey(): string {
   // Format lisible façon "clé API" : ssn_live_<32 caractères hex>
