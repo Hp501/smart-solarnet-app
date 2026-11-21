@@ -1,0 +1,17 @@
+node_modules/
+.next/
+out/
+build/
+.env
+.env.local
+.env*.local
+.DS_Store
+*.log
+npm-debug.log*
+.vercel
+supabase/.branches
+supabase/.temp
+
+# Local CLI binaries
+/bin/
+*.tsbuildinfo

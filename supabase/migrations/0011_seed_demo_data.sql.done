@@ -1,0 +1,171 @@
+-- ============================================================
+-- Smart SolarNet — Migration 0011
+-- Jeu de données de démonstration
+-- NOTE : Les utilisateurs de démo doivent être créés manuellement
+-- via le Dashboard Supabase ou l'API
+-- ============================================================
+
+-- ============================================================
+-- 1. Vérifier que les utilisateurs existent
+-- ============================================================
+DO $$
+DECLARE
+    v_admin_id UUID;
+    v_client_id UUID;
+    v_tech_id UUID;
+BEGIN
+    -- Vérifier dans auth.users
+    SELECT id INTO v_admin_id FROM auth.users WHERE email = 'admin@smartsolarnet.com';
+    SELECT id INTO v_client_id FROM auth.users WHERE email = 'client@smartsolarnet.com';
+    SELECT id INTO v_tech_id FROM auth.users WHERE email = 'tech@smartsolarnet.com';
+    
+    -- Si les utilisateurs n'existent pas, les créer via l'API
+    IF v_admin_id IS NULL OR v_client_id IS NULL OR v_tech_id IS NULL THEN
+        RAISE NOTICE '⚠️ Les utilisateurs de démo n''existent pas dans auth.users.';
+        RAISE NOTICE 'Veuillez les créer manuellement via le Dashboard Supabase :';
+        RAISE NOTICE '  - admin@smartsolarnet.com / Admin123! (Super Admin)';
+        RAISE NOTICE '  - client@smartsolarnet.com / Client123! (Client)';
+        RAISE NOTICE '  - tech@smartsolarnet.com / Tech123! (Technicien)';
+        RAISE NOTICE 'Puis réexécuter cette migration.';
+    ELSE
+        RAISE NOTICE '✅ Utilisateurs trouvés dans auth.users';
+    END IF;
+END $$;
+
+-- ============================================================
+-- 2. Forcer l'insertion dans public.users
+-- ============================================================
+INSERT INTO public.users (id, email, full_name, role)
+SELECT 
+    id,
+    email,
+    COALESCE(raw_user_meta_data->>'full_name', split_part(email, '@', 1)),
+    CASE 
+        WHEN email = 'admin@smartsolarnet.com' THEN 'super_admin'::public.user_role
+        WHEN email = 'tech@smartsolarnet.com' THEN 'technicien'::public.user_role
+        ELSE 'client'::public.user_role
+    END
+FROM auth.users
+WHERE email IN ('admin@smartsolarnet.com', 'client@smartsolarnet.com', 'tech@smartsolarnet.com')
+ON CONFLICT (id) DO NOTHING;
+
+-- ============================================================
+-- 3. Insérer les données de démonstration
+-- ============================================================
+DO $$
+DECLARE
+    v_admin_id UUID;
+    v_client_id UUID;
+    v_tech_id UUID;
+    v_site_id UUID;
+    v_device_id UUID;
+    v_source_solaire UUID;
+    v_source_batterie UUID;
+BEGIN
+    -- Récupérer les UUIDs depuis public.users
+    SELECT id INTO v_admin_id FROM public.users WHERE email = 'admin@smartsolarnet.com';
+    SELECT id INTO v_client_id FROM public.users WHERE email = 'client@smartsolarnet.com';
+    SELECT id INTO v_tech_id FROM public.users WHERE email = 'tech@smartsolarnet.com';
+    
+    -- Vérifier qu'ils existent
+    IF v_admin_id IS NULL OR v_client_id IS NULL OR v_tech_id IS NULL THEN
+        RAISE EXCEPTION '❌ Les utilisateurs de démo n''existent pas dans public.users !';
+    END IF;
+    
+    RAISE NOTICE '✅ UUIDs récupérés : Admin=%, Client=%, Tech=%', v_admin_id, v_client_id, v_tech_id;
+
+    -- Sites
+    INSERT INTO public.sites (id, owner_id, name, site_type, city, latitude, longitude, installed_capacity_kw)
+    VALUES (uuid_generate_v4(), v_client_id, 'Résidence Bastos', 'residentiel', 'Yaoundé', 3.8895, 11.5213, 5.5)
+    RETURNING id INTO v_site_id;
+
+    INSERT INTO public.site_technicians (site_id, technician_id) VALUES (v_site_id, v_tech_id);
+
+    -- Sources d'énergie
+    INSERT INTO public.energy_sources (id, site_id, source_type, name, rated_power_w)
+    VALUES (uuid_generate_v4(), v_site_id, 'solaire', 'Champ solaire toiture', 5500)
+    RETURNING id INTO v_source_solaire;
+
+    INSERT INTO public.energy_sources (id, site_id, source_type, name, rated_power_w)
+    VALUES (uuid_generate_v4(), v_site_id, 'batterie', 'Batterie principale', 5000)
+    RETURNING id INTO v_source_batterie;
+
+    INSERT INTO public.energy_sources (site_id, source_type, name, rated_power_w)
+    VALUES (v_site_id, 'eneo', 'Réseau ENEO', NULL);
+
+    -- Batterie détaillée
+    INSERT INTO public.batteries (site_id, energy_source_id, brand, model, capacity_kwh, soc, soh, temperature_c)
+    VALUES (v_site_id, v_source_batterie, 'Pylontech', 'US5000', 4.8, 76, 98, 29.5);
+
+    -- Device ESP32
+    INSERT INTO public.devices (id, site_id, device_uid, name, device_type, firmware_version, status, rssi, last_seen_at)
+    VALUES (uuid_generate_v4(), v_site_id, 'ESP32-BASTOS-001', 'Passerelle principale', 'esp32', '1.2.0', 'en_ligne', -58, now())
+    RETURNING id INTO v_device_id;
+
+    -- Capteurs
+    INSERT INTO public.sensors (device_id, energy_source_id, sensor_type, unit)
+    VALUES
+        (v_device_id, v_source_solaire, 'tension', 'V'),
+        (v_device_id, v_source_solaire, 'courant', 'A'),
+        (v_device_id, v_source_solaire, 'puissance', 'W'),
+        (v_device_id, NULL, 'temperature', '°C'),
+        (v_device_id, NULL, 'humidite', '%');
+
+    -- Charges
+    INSERT INTO public.loads (site_id, device_id, relay_channel, name, priority, rated_power_w, is_on)
+    VALUES
+        (v_site_id, v_device_id, 1, 'Réfrigérateur', 'critique', 150, true),
+        (v_site_id, v_device_id, 2, 'Éclairage salon', 'important', 40, true),
+        (v_site_id, v_device_id, 3, 'Climatiseur', 'secondaire', 1200, false);
+
+    -- Télémétrie
+    INSERT INTO public.telemetry (site_id, device_id, energy_source_id, metric, value, unit)
+    VALUES
+        (v_site_id, v_device_id, v_source_solaire, 'puissance', 2350.5, 'W'),
+        (v_site_id, v_device_id, v_source_solaire, 'tension', 231.2, 'V'),
+        (v_site_id, v_device_id, v_source_solaire, 'courant', 10.16, 'A'),
+        (v_site_id, v_device_id, NULL, 'temperature', 29.5, '°C'),
+        (v_site_id, v_device_id, NULL, 'humidite', 68, '%');
+
+    -- Alerte
+    INSERT INTO public.alerts (site_id, device_id, code, severity, title, message)
+    VALUES (v_site_id, v_device_id, 'batterie_faible', 'avertissement', 'Batterie sous 30%',
+            'Le niveau de charge de la batterie principale est descendu sous le seuil recommandé.');
+
+    -- Recommandation IA
+    INSERT INTO public.recommendations_ai (site_id, category, title, description, confidence_score)
+    VALUES (v_site_id, 'consommation', 'Optimisation possible',
+            'Décaler l''usage du climatiseur après 12h permettrait de mieux exploiter la production solaire.', 0.870);
+
+    RAISE NOTICE '✅ Données de démonstration insérées avec succès !';
+END $$;
+
+-- ============================================================
+-- 4. Produits marketplace
+-- ============================================================
+INSERT INTO public.products (sku, name, category, description, price_fcfa, stock_quantity, images)
+VALUES
+    ('KIT-SOL-3KW', 'Kit solaire 3kW complet', 'kit_solaire', 'Panneaux, onduleur et support pour installation résidentielle', 1250000, 12, '{}'),
+    ('BAT-PYL-5KWH', 'Batterie Pylontech 5kWh', 'batterie', 'Batterie lithium haute performance', 950000, 8, '{}'),
+    ('ESP32-DEVKIT', 'Module ESP32 DevKit', 'esp32', 'Microcontrôleur WiFi/BLE pour supervision IoT', 8500, 40, '{}'),
+    ('CAPT-TENS-01', 'Capteur de tension AC/DC', 'capteur', 'Capteur précis pour mesure tension microgrid', 15000, 25, '{}')
+ON CONFLICT (sku) DO NOTHING;
+
+-- ============================================================
+-- 5. Services marketplace
+-- ============================================================
+INSERT INTO public.services (name, category, description, price_fcfa, price_type)
+VALUES
+    ('Installation solaire résidentielle', 'installation', 'Installation complète clé en main', NULL, 'sur_devis'),
+    ('Audit énergétique', 'audit', 'Analyse complète de la consommation et recommandations', 75000, 'fixe'),
+    ('Formation microgrid IoT', 'formation_microgrid', 'Formation de 2 jours sur la gestion des microgrids', 120000, 'fixe'),
+    ('Contrat de maintenance annuel', 'contrat_maintenance', 'Visites trimestrielles + support prioritaire', 250000, 'fixe');
+
+-- ============================================================
+-- 6. Vérification finale
+-- ============================================================
+SELECT 
+    '✅ Migration 0011 terminée avec succès !' as status,
+    (SELECT COUNT(*) FROM public.users) as total_users,
+    (SELECT COUNT(*) FROM public.sites) as total_sites,
+    (SELECT COUNT(*) FROM public.products) as total_products;

@@ -1,0 +1,12 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root { --font-sans: "Inter", system-ui, sans-serif; --color-background: 11 18 32; --color-surface: 18 27 46; --color-border: 31 44 68; --color-primary: 59 130 246; --color-primary-foreground: 255 255 255; --color-solar: 245 158 11; --color-solar-foreground: 15 23 42; --color-energy: 34 197 94; --color-energy-foreground: 15 23 42; --color-danger: 239 68 68; --color-muted: 148 163 184; }
+.light { --color-background: 248 250 252; --color-surface: 255 255 255; --color-border: 226 232 240; --color-primary: 59 130 246; --color-primary-foreground: 255 255 255; --color-solar: 245 158 11; --color-solar-foreground: 15 23 42; --color-energy: 34 197 94; --color-energy-foreground: 255 255 255; --color-danger: 239 68 68; --color-muted: 100 116 139; }
+body { @apply bg-background text-white antialiased; transition: background-color 180ms ease, color 180ms ease; }
+body.light { color: #0f172a; }
+body.light .text-white { color: #0f172a; }
+body.light .bg-white\/5 { background-color: rgb(15 23 42 / .04); }
+body.light .border-white\/10 { border-color: rgb(15 23 42 / .10); }
+* { scrollbar-width: thin; scrollbar-color: rgb(148 163 184 / .45) transparent; }
